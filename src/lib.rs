@@ -8,6 +8,9 @@ pub use sftp::{AsyncFile, AsyncSftp};
 
 pub use ssh2;
 
+#[macro_use]
+mod io;
+
 mod agent;
 mod channel;
 mod listener;

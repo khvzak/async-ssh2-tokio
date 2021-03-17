@@ -2,24 +2,25 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_io::{Async, Timer};
 use ssh2::Listener;
+use tokio::net::TcpStream;
+use tokio::time;
 
 use crate::channel::AsyncChannel;
 
-pub struct AsyncListener<S> {
+pub struct AsyncListener {
     inner: Listener,
-    async_io: Arc<Async<S>>,
+    stream: Arc<TcpStream>,
 }
 
-impl<S> AsyncListener<S> {
-    pub(crate) fn from_parts(inner: Listener, async_io: Arc<Async<S>>) -> Self {
-        Self { inner, async_io }
+impl AsyncListener {
+    pub(crate) fn from_parts(inner: Listener, stream: Arc<TcpStream>) -> Self {
+        Self { inner, stream }
     }
 }
 
-impl<S> AsyncListener<S> {
-    pub async fn accept(&mut self) -> io::Result<AsyncChannel<S>> {
+impl AsyncListener {
+    pub async fn accept(&mut self) -> io::Result<AsyncChannel> {
         // The I/O object for Listener::accept is on the remote SSH server. There is no way to poll
         // its state so the best we can do is loop and periodically check whether we have a new
         // connection.
@@ -32,9 +33,9 @@ impl<S> AsyncListener<S> {
                 Err(e) => return Err(io::Error::from(e)),
             }
 
-            Timer::after(Duration::from_millis(10)).await;
+            time::sleep(Duration::from_millis(10)).await;
         };
 
-        Ok(AsyncChannel::from_parts(channel, self.async_io.clone()))
+        Ok(AsyncChannel::from_parts(channel, self.stream.clone()))
     }
 }

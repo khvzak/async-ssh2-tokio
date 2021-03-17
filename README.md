@@ -1,10 +1,10 @@
-# async-ssh2-lite
+# async-ssh2-tokio
 
-* [Cargo package](https://crates.io/crates/async-ssh2-lite)
+* [Cargo package](https://crates.io/crates/async-ssh2-tokio)
 
 ## Examples
 
-### smol 
+### smol
 
 * [Inspecting ssh-agent](demos/smol/src/inspect_ssh_agent.rs)
 * [Authenticating with ssh-agent](demos/smol/src/auth_with_ssh_agent.rs)
