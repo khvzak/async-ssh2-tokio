@@ -14,7 +14,7 @@ readme = "README.md"
 
 [dependencies]
 ssh2 = { version = "0.9", default-features = false, features = [] }
-tokio = { version = "1", features = ["net", "time"] }
+tokio = { version = "1", features = ["net", "time", "rt"] }
 
 [features]
 vendored-openssl = ["ssh2/vendored-openssl"]

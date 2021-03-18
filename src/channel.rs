@@ -3,20 +3,25 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use ssh2::{Channel, ExitSignal, ExtendedData, PtyModes, ReadWindow, Stream, WriteWindow};
+use ssh2::{Channel, ExitSignal, ExtendedData, PtyModes, ReadWindow, Session, Stream, WriteWindow};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 
-use crate::io::write_with;
+use crate::io::{poll, with_async};
 
 pub struct AsyncChannel {
     inner: Channel,
+    session: Session,
     stream: Arc<TcpStream>,
 }
 
 impl AsyncChannel {
-    pub(crate) fn from_parts(inner: Channel, stream: Arc<TcpStream>) -> Self {
-        Self { inner, stream }
+    pub(crate) fn from_parts(inner: Channel, session: Session, stream: Arc<TcpStream>) -> Self {
+        Self {
+            inner,
+            session,
+            stream,
+        }
     }
 }
 
@@ -24,7 +29,10 @@ impl AsyncChannel {
     pub async fn setenv(&mut self, var: &str, val: &str) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.setenv(var, val).map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.setenv(var, val).map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn request_pty(
@@ -35,7 +43,7 @@ impl AsyncChannel {
     ) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.session, &self.stream, || {
             inner
                 .request_pty(term, mode.clone(), dim)
                 .map_err(Into::into)
@@ -52,7 +60,7 @@ impl AsyncChannel {
     ) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.session, &self.stream, || {
             inner
                 .request_pty_size(width, height, width_px, height_px)
                 .map_err(Into::into)
@@ -63,7 +71,7 @@ impl AsyncChannel {
     pub async fn request_auth_agent_forwarding(&mut self) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.session, &self.stream, || {
             inner.request_auth_agent_forwarding().map_err(Into::into)
         })
         .await
@@ -72,19 +80,28 @@ impl AsyncChannel {
     pub async fn exec(&mut self, command: &str) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.exec(command).map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.exec(command).map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn shell(&mut self) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.shell().map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.shell().map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn subsystem(&mut self, system: &str) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.subsystem(system).map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.subsystem(system).map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn process_startup(
@@ -94,24 +111,32 @@ impl AsyncChannel {
     ) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.session, &self.stream, || {
             inner.process_startup(request, message).map_err(Into::into)
         })
         .await
     }
 
     pub fn stderr(&self) -> AsyncStream {
-        AsyncStream::from_parts(self.inner.stderr(), self.stream.clone())
+        AsyncStream::from_parts(
+            self.inner.stderr(),
+            self.session.clone(),
+            self.stream.clone(),
+        )
     }
 
     pub fn stream(&self, stream_id: i32) -> AsyncStream {
-        AsyncStream::from_parts(self.inner.stream(stream_id), self.stream.clone())
+        AsyncStream::from_parts(
+            self.inner.stream(stream_id),
+            self.session.clone(),
+            self.stream.clone(),
+        )
     }
 
     pub async fn handle_extended_data(&mut self, mode: ExtendedData) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.session, &self.stream, || {
             inner.handle_extended_data(mode).map_err(Into::into)
         })
         .await
@@ -136,7 +161,7 @@ impl AsyncChannel {
     pub async fn adjust_receive_window(&mut self, adjust: u64, force: bool) -> io::Result<u64> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.session, &self.stream, || {
             inner
                 .adjust_receive_window(adjust, force)
                 .map_err(Into::into)
@@ -151,25 +176,37 @@ impl AsyncChannel {
     pub async fn send_eof(&mut self) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.send_eof().map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.send_eof().map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn wait_eof(&mut self) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.wait_eof().map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.wait_eof().map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn close(&mut self) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.close().map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.close().map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn wait_close(&mut self) -> io::Result<()> {
         let inner = &mut self.inner;
 
-        write_with(&self.stream, || inner.wait_close().map_err(Into::into)).await
+        with_async(&self.session, &self.stream, || {
+            inner.wait_close().map_err(Into::into)
+        })
+        .await
     }
 }
 
@@ -193,26 +230,25 @@ impl AsyncWrite for AsyncChannel {
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        loop {
-            match self.inner.close() {
-                Err(err)
-                    if io::Error::from(ssh2::Error::from_errno(err.code())).kind()
-                        == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res.map_err(Into::into)),
-            }
-            ready!(self.stream.poll_write_ready(cx))?;
-        }
+        poll(self.session.clone(), self.stream.clone(), cx, || {
+            self.inner.close().map_err(io::Error::from)
+        })
     }
 }
 
 pub struct AsyncStream {
     inner: Stream,
+    session: Session,
     stream: Arc<TcpStream>,
 }
 
 impl AsyncStream {
-    pub(crate) fn from_parts(inner: Stream, stream: Arc<TcpStream>) -> Self {
-        Self { inner, stream }
+    pub(crate) fn from_parts(inner: Stream, session: Session, stream: Arc<TcpStream>) -> Self {
+        Self {
+            inner,
+            session,
+            stream,
+        }
     }
 }
 
@@ -222,13 +258,11 @@ impl AsyncRead for AsyncStream {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf,
     ) -> Poll<io::Result<()>> {
-        loop {
-            match self.inner.read(buf.initialize_unfilled()) {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res.map(|n| buf.advance(n))),
-            }
-            ready!(self.stream.poll_read_ready(cx))?;
-        }
+        poll(self.session.clone(), self.stream.clone(), cx, || {
+            self.inner
+                .read(buf.initialize_unfilled())
+                .map(|n| buf.advance(n))
+        })
     }
 }
 
@@ -238,23 +272,15 @@ impl AsyncWrite for AsyncStream {
         cx: &mut Context,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        loop {
-            match self.inner.write(buf) {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
-            }
-            ready!(self.stream.poll_write_ready(cx))?;
-        }
+        poll(self.session.clone(), self.stream.clone(), cx, || {
+            self.inner.write(buf)
+        })
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        loop {
-            match self.inner.flush() {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
-            }
-            ready!(self.stream.poll_write_ready(cx))?;
-        }
+        poll(self.session.clone(), self.stream.clone(), cx, || {
+            self.inner.flush()
+        })
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {

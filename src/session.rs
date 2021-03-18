@@ -11,7 +11,7 @@ use tokio::net::TcpStream;
 
 use crate::agent::AsyncAgent;
 use crate::channel::AsyncChannel;
-use crate::io::write_with;
+use crate::io::with_async;
 use crate::listener::AsyncListener;
 use crate::sftp::AsyncSftp;
 
@@ -65,15 +65,18 @@ impl AsyncSession {
 
 impl AsyncSession {
     pub async fn handshake(&mut self) -> io::Result<()> {
-        let inner = &mut self.inner;
+        let inner = &mut self.inner.clone();
 
-        write_with(&self.stream, || inner.handshake().map_err(Into::into)).await
+        with_async(&self.inner, &self.stream, || {
+            inner.handshake().map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn userauth_password(&self, username: &str, password: &str) -> io::Result<()> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner
                 .userauth_password(username, password)
                 .map_err(Into::into)
@@ -88,7 +91,7 @@ impl AsyncSession {
     ) -> io::Result<()> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner
                 .userauth_keyboard_interactive(username, prompter)
                 .map_err(Into::into)
@@ -122,7 +125,7 @@ impl AsyncSession {
     ) -> io::Result<()> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner
                 .userauth_pubkey_file(username, pubkey, privatekey, passphrase)
                 .map_err(Into::into)
@@ -140,7 +143,7 @@ impl AsyncSession {
     ) -> io::Result<()> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner
                 .userauth_pubkey_memory(username, pubkeydata, privatekeydata, passphrase)
                 .map_err(Into::into)
@@ -159,7 +162,7 @@ impl AsyncSession {
     ) -> io::Result<()> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner
                 .userauth_hostbased_file(
                     username,
@@ -181,7 +184,7 @@ impl AsyncSession {
     pub async fn auth_methods(&self, username: &str) -> io::Result<&str> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner.auth_methods(username).map_err(Into::into)
         })
         .await
@@ -190,7 +193,7 @@ impl AsyncSession {
     pub async fn method_pref(&self, method_type: MethodType, prefs: &str) -> io::Result<()> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner.method_pref(method_type, prefs).map_err(Into::into)
         })
         .await
@@ -203,7 +206,7 @@ impl AsyncSession {
     pub async fn supported_algs(&self, method_type: MethodType) -> io::Result<Vec<&'static str>> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner.supported_algs(method_type).map_err(Into::into)
         })
         .await
@@ -212,7 +215,7 @@ impl AsyncSession {
     pub fn agent(&self) -> io::Result<AsyncAgent> {
         let ret = self.inner.agent().map_err(Into::into);
 
-        ret.map(|agent| AsyncAgent::from_parts(agent, self.stream.clone()))
+        ret.map(|agent| AsyncAgent::from_parts(agent, self.inner.clone(), self.stream.clone()))
     }
 
     pub fn known_hosts(&self) -> io::Result<KnownHosts> {
@@ -222,9 +225,12 @@ impl AsyncSession {
     pub async fn channel_session(&self) -> io::Result<AsyncChannel> {
         let inner = &self.inner;
 
-        let ret = write_with(&self.stream, || inner.channel_session().map_err(Into::into)).await;
+        let ret = with_async(&self.inner, &self.stream, || {
+            inner.channel_session().map_err(Into::into)
+        })
+        .await;
 
-        ret.map(|channel| AsyncChannel::from_parts(channel, self.stream.clone()))
+        ret.map(|channel| AsyncChannel::from_parts(channel, inner.clone(), self.stream.clone()))
     }
 
     pub async fn channel_direct_tcpip(
@@ -235,14 +241,14 @@ impl AsyncSession {
     ) -> io::Result<AsyncChannel> {
         let inner = &self.inner;
 
-        let ret = write_with(&self.stream, || {
+        let ret = with_async(&self.inner, &self.stream, || {
             inner
                 .channel_direct_tcpip(host, port, src)
                 .map_err(Into::into)
         })
         .await;
 
-        ret.map(|channel| AsyncChannel::from_parts(channel, self.stream.clone()))
+        ret.map(|channel| AsyncChannel::from_parts(channel, inner.clone(), self.stream.clone()))
     }
 
     pub async fn channel_forward_listen(
@@ -253,7 +259,7 @@ impl AsyncSession {
     ) -> io::Result<(AsyncListener, u16)> {
         let inner = &self.inner;
 
-        let ret = write_with(&self.stream, || {
+        let ret = with_async(&self.inner, &self.stream, || {
             inner
                 .channel_forward_listen(remote_port, host, queue_maxsize)
                 .map_err(Into::into)
@@ -262,7 +268,7 @@ impl AsyncSession {
 
         ret.map(|(listener, port)| {
             (
-                AsyncListener::from_parts(listener, self.stream.clone()),
+                AsyncListener::from_parts(listener, inner.clone(), self.stream.clone()),
                 port,
             )
         })
@@ -271,11 +277,14 @@ impl AsyncSession {
     pub async fn scp_recv(&self, path: &Path) -> io::Result<(AsyncChannel, ScpFileStat)> {
         let inner = &self.inner;
 
-        let ret = write_with(&self.stream, || inner.scp_recv(path).map_err(Into::into)).await;
+        let ret = with_async(&self.inner, &self.stream, || {
+            inner.scp_recv(path).map_err(Into::into)
+        })
+        .await;
 
         ret.map(|(channel, scp_file_stat)| {
             (
-                AsyncChannel::from_parts(channel, self.stream.clone()),
+                AsyncChannel::from_parts(channel, inner.clone(), self.stream.clone()),
                 scp_file_stat,
             )
         })
@@ -290,22 +299,25 @@ impl AsyncSession {
     ) -> io::Result<AsyncChannel> {
         let inner = &self.inner;
 
-        let ret = write_with(&self.stream, || {
+        let ret = with_async(&self.inner, &self.stream, || {
             inner
                 .scp_send(remote_path, mode, size, times)
                 .map_err(Into::into)
         })
         .await;
 
-        ret.map(|channel| AsyncChannel::from_parts(channel, self.stream.clone()))
+        ret.map(|channel| AsyncChannel::from_parts(channel, inner.clone(), self.stream.clone()))
     }
 
     pub async fn sftp(&self) -> io::Result<AsyncSftp> {
         let inner = &self.inner;
 
-        let ret = write_with(&self.stream, || inner.sftp().map_err(Into::into)).await;
+        let ret = with_async(&self.inner, &self.stream, || {
+            inner.sftp().map_err(Into::into)
+        })
+        .await;
 
-        ret.map(|sftp| AsyncSftp::from_parts(sftp, self.stream.clone()))
+        ret.map(|sftp| AsyncSftp::from_parts(sftp, self.inner.clone(), self.stream.clone()))
     }
 
     pub async fn channel_open(
@@ -317,14 +329,14 @@ impl AsyncSession {
     ) -> io::Result<AsyncChannel> {
         let inner = &self.inner;
 
-        let ret = write_with(&self.stream, || {
+        let ret = with_async(&self.inner, &self.stream, || {
             inner
                 .channel_open(channel_type, window_size, packet_size, message)
                 .map_err(Into::into)
         })
         .await;
 
-        ret.map(|channel| AsyncChannel::from_parts(channel, self.stream.clone()))
+        ret.map(|channel| AsyncChannel::from_parts(channel, inner.clone(), self.stream.clone()))
     }
 
     pub fn host_key(&self) -> Option<(&[u8], HostKeyType)> {
@@ -338,7 +350,10 @@ impl AsyncSession {
     pub async fn keepalive_send(&self) -> io::Result<u32> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || inner.keepalive_send().map_err(Into::into)).await
+        with_async(&self.inner, &self.stream, || {
+            inner.keepalive_send().map_err(Into::into)
+        })
+        .await
     }
 
     pub async fn disconnect(
@@ -349,7 +364,7 @@ impl AsyncSession {
     ) -> io::Result<()> {
         let inner = &self.inner;
 
-        write_with(&self.stream, || {
+        with_async(&self.inner, &self.stream, || {
             inner
                 .disconnect(reason, description, lang)
                 .map_err(Into::into)
